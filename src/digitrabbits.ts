@@ -1,3 +1,4 @@
+import { BigInt } from "@graphprotocol/graph-ts"
 import {
   ContractPaused as ContractPausedEvent,
   ContractUnpaused as ContractUnpausedEvent,
@@ -18,8 +19,26 @@ import {
   OwnershipTransferred,
   PlayerAdded,
   PointsClaimed,
-  SeasonStarted
+  SeasonStarted,
+  GlobalStats
 } from "../generated/schema"
+
+// Fonction utilitaire pour récupérer ou créer GlobalStats
+function getOrCreateGlobalStats(): GlobalStats {
+  let globalStats = GlobalStats.load("global")
+  
+  if (globalStats == null) {
+    globalStats = new GlobalStats("global")
+    globalStats.totalGamesStarted = BigInt.fromI32(0)
+    globalStats.totalPointsClaimed = BigInt.fromI32(0)
+    globalStats.totalPlayers = BigInt.fromI32(0)
+    globalStats.totalItemsBought = BigInt.fromI32(0)
+    globalStats.lastUpdatedBlock = BigInt.fromI32(0)
+    globalStats.lastUpdatedTimestamp = BigInt.fromI32(0)
+  }
+  
+  return globalStats
+}
 
 export function handleContractPaused(event: ContractPausedEvent): void {
   let entity = new ContractPaused(
@@ -75,6 +94,13 @@ export function handleGameStarted(event: GameStartedEvent): void {
   entity.transactionHash = event.transaction.hash
 
   entity.save()
+
+  // Mettre à jour les statistiques globales
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.totalGamesStarted = globalStats.totalGamesStarted.plus(BigInt.fromI32(1))
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
 }
 
 export function handleItemBought(event: ItemBoughtEvent): void {
@@ -90,6 +116,13 @@ export function handleItemBought(event: ItemBoughtEvent): void {
   entity.transactionHash = event.transaction.hash
 
   entity.save()
+
+  // Mettre à jour les statistiques globales
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.totalItemsBought = globalStats.totalItemsBought.plus(BigInt.fromI32(1))
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
 }
 
 export function handleOwnershipTransferred(
@@ -120,6 +153,13 @@ export function handlePlayerAdded(event: PlayerAddedEvent): void {
   entity.transactionHash = event.transaction.hash
 
   entity.save()
+
+  // Mettre à jour les statistiques globales
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.totalPlayers = globalStats.totalPlayers.plus(BigInt.fromI32(1))
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
 }
 
 export function handlePointsClaimed(event: PointsClaimedEvent): void {
@@ -134,6 +174,13 @@ export function handlePointsClaimed(event: PointsClaimedEvent): void {
   entity.transactionHash = event.transaction.hash
 
   entity.save()
+
+  // Mettre à jour les statistiques globales
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.totalPointsClaimed = globalStats.totalPointsClaimed.plus(event.params.amount)
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
 }
 
 export function handleSeasonStarted(event: SeasonStartedEvent): void {

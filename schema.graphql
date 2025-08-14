@@ -78,3 +78,26 @@ type SeasonStarted @entity(immutable: true) {
   blockTimestamp: BigInt!
   transactionHash: Bytes!
 }
+
+# Entité pour stocker les statistiques globales
+type GlobalStats @entity(immutable: false) {
+  id: String! # Utilisera "global" comme ID unique
+  totalGamesStarted: BigInt! # Nombre total de parties lancées
+  totalPointsClaimed: BigInt! # Somme totale des points réclamés
+  totalPlayers: BigInt! # Nombre total de joueurs uniques
+  totalItemsBought: BigInt! # Nombre total d'objets achetés
+  lastUpdatedBlock: BigInt! # Dernier block où les stats ont été mises à jour
+  lastUpdatedTimestamp: BigInt! # Dernier timestamp de mise à jour
+}
+
+# Entité optionnelle pour stocker des statistiques par saison
+type SeasonStats @entity(immutable: false) {
+  id: String! # seasonId comme string
+  seasonId: BigInt!
+  gamesStarted: BigInt!
+  pointsClaimed: BigInt!
+  playersCount: BigInt!
+  itemsBought: BigInt!
+  lastUpdatedBlock: BigInt!
+  lastUpdatedTimestamp: BigInt!
+}
