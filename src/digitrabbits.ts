@@ -30,6 +30,7 @@ function getOrCreateGlobalStats(): GlobalStats {
   if (globalStats == null) {
     globalStats = new GlobalStats("global")
     globalStats.totalGamesStarted = BigInt.fromI32(0)
+    globalStats.totalGamesPlayed = BigInt.fromI32(0)
     globalStats.totalPointsClaimed = BigInt.fromI32(0)
     globalStats.totalPlayers = BigInt.fromI32(0)
     globalStats.totalItemsBought = BigInt.fromI32(0)
@@ -70,6 +71,12 @@ export function handleGamePlayed(event: GamePlayedEvent): void {
   let entity = new GamePlayed(
     event.transaction.hash.concatI32(event.logIndex.toI32())
   )
+  
+  // Récupérer les stats globales pour avoir le compteur
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.totalGamesPlayed = globalStats.totalGamesPlayed.plus(BigInt.fromI32(1))
+  
+  entity.sequentialId = globalStats.totalGamesPlayed
   entity.player = event.params.player
   entity.seasonId = event.params.seasonId
   entity.clicks = event.params.clicks
@@ -79,6 +86,11 @@ export function handleGamePlayed(event: GamePlayedEvent): void {
   entity.transactionHash = event.transaction.hash
 
   entity.save()
+  
+  // Sauvegarder les stats mises à jour
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
 }
 
 export function handleGameStarted(event: GameStartedEvent): void {

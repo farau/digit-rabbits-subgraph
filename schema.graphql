@@ -16,6 +16,7 @@ type ContractUnpaused @entity(immutable: true) {
 
 type GamePlayed @entity(immutable: true) {
   id: Bytes!
+  sequentialId: BigInt! # Index séquentiel : 1, 2, 3, 4, ... 500000
   player: Bytes! # address
   seasonId: BigInt! # uint256
   clicks: BigInt! # uint256
@@ -83,6 +84,7 @@ type SeasonStarted @entity(immutable: true) {
 type GlobalStats @entity(immutable: false) {
   id: String! # Utilisera "global" comme ID unique
   totalGamesStarted: BigInt! # Nombre total de parties lancées
+  totalGamesPlayed: BigInt! # Nombre total d'événements GamePlayed
   totalPointsClaimed: BigInt! # Somme totale des points réclamés
   totalPlayers: BigInt! # Nombre total de joueurs uniques
   totalItemsBought: BigInt! # Nombre total d'objets achetés
