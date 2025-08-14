@@ -10,9 +10,9 @@
     "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 digit-rabbits",
     "test": "graph test"
   },
-  "dependencies": {
-    "@graphprotocol/graph-cli": "0.97.1",
-    "@graphprotocol/graph-ts": "0.37.0"
-  },
-  "devDependencies": { "matchstick-as": "0.6.0" }
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "^0.97.1",
+    "@graphprotocol/graph-ts": "^0.38.1",
+    "matchstick-as": "0.6.0"
+  }
 }
