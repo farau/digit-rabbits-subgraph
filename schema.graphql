@@ -1,3 +1,4 @@
+# Tes entités existantes (inchangées)
 type ContractPaused @entity(immutable: true) {
   id: Bytes!
   by: Bytes! # address
@@ -17,7 +18,8 @@ type ContractUnpaused @entity(immutable: true) {
 type GamePlayed @entity(immutable: true) {
   id: Bytes!
   sequentialId: BigInt! # Index séquentiel : 1, 2, 3, 4, ... 500000
-  player: Bytes! # address
+  playerAddress: Bytes! # address (renamed to avoid confusion)
+  player: Player! # Reference to Player entity
   seasonId: BigInt! # uint256
   clicks: BigInt! # uint256
   blockNumber: BigInt!
@@ -27,7 +29,8 @@ type GamePlayed @entity(immutable: true) {
 
 type GameStarted @entity(immutable: true) {
   id: Bytes!
-  player: Bytes! # address
+  playerAddress: Bytes! # address (renamed to avoid confusion)
+  player: Player! # Reference to Player entity
   seasonId: BigInt! # uint256
   sessionEndsAt: BigInt! # uint256
   blockNumber: BigInt!
@@ -37,7 +40,8 @@ type GameStarted @entity(immutable: true) {
 
 type ItemBought @entity(immutable: true) {
   id: Bytes!
-  player: Bytes! # address
+  playerAddress: Bytes! # address (renamed to avoid confusion)
+  player: Player! # Reference to Player entity
   slot: Int! # uint8
   level: Int! # uint8
   blockNumber: BigInt!
@@ -56,7 +60,8 @@ type OwnershipTransferred @entity(immutable: true) {
 
 type PlayerAdded @entity(immutable: true) {
   id: Bytes!
-  player: Bytes! # address
+  playerAddress: Bytes! # address (renamed to avoid confusion)
+  player: Player! # Reference to Player entity
   seasonId: BigInt! # uint256
   blockNumber: BigInt!
   blockTimestamp: BigInt!
@@ -65,7 +70,8 @@ type PlayerAdded @entity(immutable: true) {
 
 type PointsClaimed @entity(immutable: true) {
   id: Bytes!
-  player: Bytes! # address
+  playerAddress: Bytes! # address (renamed to avoid confusion)
+  player: Player! # Reference to Player entity
   amount: BigInt! # uint256
   blockNumber: BigInt!
   blockTimestamp: BigInt!
@@ -100,6 +106,120 @@ type SeasonStats @entity(immutable: false) {
   pointsClaimed: BigInt!
   playersCount: BigInt!
   itemsBought: BigInt!
+  lastUpdatedBlock: BigInt!
+  lastUpdatedTimestamp: BigInt!
+}
+
+# 🎯 NOUVELLES ENTITÉS POUR LE LEADERBOARD
+
+# Entité principale pour chaque joueur (agrégation de toutes ses données)
+type Player @entity(immutable: false) {
+  id: String! # walletAddress comme string
+  walletAddress: Bytes! # address du joueur
+  
+  # Statistiques globales (toutes saisons confondues)
+  totalGamesPlayed: BigInt! # Nombre total de parties jouées
+  totalGamesStarted: BigInt! # Nombre total de parties lancées
+  totalClicks: BigInt! # Somme de tous les clicks de toutes les parties
+  totalPointsClaimed: BigInt! # Total des points réclamés
+  totalItemsBought: BigInt! # Total des items achetés
+  
+  # Statistiques pour le leaderboard
+  bestClicksInGame: BigInt! # Meilleur score de clicks en une partie
+  bestClicksGameId: BigInt # ID de la partie avec le meilleur score
+  averageClicks: BigInt! # Moyenne des clicks par partie (calculée)
+  
+  # Streak et activité
+  currentStreak: BigInt! # Streak actuel (parties consécutives)
+  longestStreak: BigInt! # Plus long streak
+  lastGameTimestamp: BigInt! # Timestamp de la dernière partie
+  
+  # Métadonnées
+  firstGameTimestamp: BigInt! # Timestamp de la première partie
+  seasonsParticipated: [BigInt!]! # Liste des saisons où il a joué
+  isActive: Boolean! # A joué dans les dernières 24h
+  
+  # Relations
+  games: [GamePlayed!]! @derivedFrom(field: "player") # Toutes ses parties
+  gamesStarted: [GameStarted!]! @derivedFrom(field: "player") # Toutes ses parties lancées
+  itemsBought: [ItemBought!]! @derivedFrom(field: "player") # Tous ses achats
+  pointsClaimed: [PointsClaimed!]! @derivedFrom(field: "player") # Tous ses claims
+  playerAdditions: [PlayerAdded!]! @derivedFrom(field: "player") # Toutes ses additions
+  seasonStats: [PlayerSeasonStats!]! @derivedFrom(field: "player") # Stats par saison
+  
+  # Timestamps de mise à jour
+  lastUpdatedBlock: BigInt!
+  lastUpdatedTimestamp: BigInt!
+}
+
+# Statistiques d'un joueur pour une saison spécifique
+type PlayerSeasonStats @entity(immutable: false) {
+  id: String! # "{walletAddress}-{seasonId}"
+  player: Player! # Référence vers le joueur
+  seasonId: BigInt!
+  
+  # Stats pour cette saison
+  gamesPlayed: BigInt!
+  gamesStarted: BigInt!
+  totalClicks: BigInt!
+  pointsClaimed: BigInt!
+  itemsBought: BigInt!
+  
+  # Performance
+  bestClicksInGame: BigInt!
+  bestClicksGameId: BigInt
+  averageClicks: BigInt!
+  
+  # Activité
+  currentStreak: BigInt!
+  longestStreak: BigInt!
+  firstGameTimestamp: BigInt!
+  lastGameTimestamp: BigInt!
+  
+  # Score calculé pour le leaderboard (tu peux ajuster la formule)
+  leaderboardScore: BigInt! # Ex: totalClicks * 100 + pointsClaimed + streak * 50
+  
+  # Rang dans cette saison (optionnel, calculé périodiquement)
+  rank: BigInt
+  
+  lastUpdatedBlock: BigInt!
+  lastUpdatedTimestamp: BigInt!
+}
+
+# Entité pour les records globaux (top clickers, etc.)
+type GlobalRecord @entity(immutable: false) {
+  id: String! # Type de record: "topClicker", "topStreak", "topPoints", etc.
+  recordType: String! # "BEST_CLICKS", "LONGEST_STREAK", "MOST_POINTS", etc.
+  
+  # Détails du record
+  player: Player! # Joueur détenant le record
+  value: BigInt! # Valeur du record
+  gameId: BigInt # ID de la partie si applicable
+  seasonId: BigInt # Saison où le record a été établi
+  
+  # Métadonnées
+  achievedAt: BigInt! # Timestamp
+  achievedAtBlock: BigInt! # Block number
+  previousRecord: BigInt # Ancienne valeur
+  
+  lastUpdatedBlock: BigInt!
+  lastUpdatedTimestamp: BigInt!
+}
+
+# Entité pour stocker les rangs calculés (optionnel, pour optimiser les queries)
+type LeaderboardEntry @entity(immutable: false) {
+  id: String! # "{seasonId}-{rank}" ou "global-{rank}"
+  player: Player!
+  seasonId: BigInt # 0 pour le leaderboard global
+  rank: BigInt!
+  score: BigInt! # Score utilisé pour le classement
+  
+  # Snapshot des stats au moment du calcul du rang
+  totalClicks: BigInt!
+  totalPoints: BigInt!
+  gamesPlayed: BigInt!
+  currentStreak: BigInt!
+  
   lastUpdatedBlock: BigInt!
   lastUpdatedTimestamp: BigInt!
 }
