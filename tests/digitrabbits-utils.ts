@@ -1,11 +1,10 @@
 import { newMockEvent } from "matchstick-as"
-import { ethereum, Address, BigInt } from "@graphprotocol/graph-ts"
+import { ethereum, Address, BigInt, Bytes } from "@graphprotocol/graph-ts"
 import {
   ContractPaused,
   ContractUnpaused,
   GamePlayed,
   GameStarted,
-  ItemBought,
   OwnershipTransferred,
   PlayerAdded,
   PointsClaimed,
@@ -14,6 +13,12 @@ import {
 
 export function createContractPausedEvent(by: Address): ContractPaused {
   let contractPausedEvent = changetype<ContractPaused>(newMockEvent())
+
+  // Keep deterministic IDs for assertions: txHash + "-" + logIndex
+  contractPausedEvent.transaction.hash = Bytes.fromHexString(
+    "0xa16081f360e3847006db660bae1c6d1b2e17ec2a"
+  )
+  contractPausedEvent.logIndex = BigInt.fromI32(1)
 
   contractPausedEvent.parameters = new Array()
 
@@ -89,33 +94,6 @@ export function createGameStartedEvent(
   return gameStartedEvent
 }
 
-export function createItemBoughtEvent(
-  player: Address,
-  slot: i32,
-  level: i32
-): ItemBought {
-  let itemBoughtEvent = changetype<ItemBought>(newMockEvent())
-
-  itemBoughtEvent.parameters = new Array()
-
-  itemBoughtEvent.parameters.push(
-    new ethereum.EventParam("player", ethereum.Value.fromAddress(player))
-  )
-  itemBoughtEvent.parameters.push(
-    new ethereum.EventParam(
-      "slot",
-      ethereum.Value.fromUnsignedBigInt(BigInt.fromI32(slot))
-    )
-  )
-  itemBoughtEvent.parameters.push(
-    new ethereum.EventParam(
-      "level",
-      ethereum.Value.fromUnsignedBigInt(BigInt.fromI32(level))
-    )
-  )
-
-  return itemBoughtEvent
-}
 
 export function createOwnershipTransferredEvent(
   previousOwner: Address,

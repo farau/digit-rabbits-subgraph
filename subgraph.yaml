@@ -5,12 +5,12 @@ schema:
   file: ./schema.graphql
 dataSources:
   - kind: ethereum
-    name: digitrabbits
-    network: megaeth-testnet
+    name: digit-rabbits-season1
+    network: megaeth
     source:
-      address: "0x07bc9814b3f806a5fa95dc5530407ad4d599e3dd"
+      address: "0xFE7C8a660c9d06e781F145A84556Ff31350Cd452"
       abi: digitrabbits
-      startBlock: 13040920
+      startBlock: 15359187
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -20,31 +20,31 @@ dataSources:
         - ContractUnpaused
         - GamePlayed
         - GameStarted
-        - ItemBought
         - OwnershipTransferred
         - PlayerAdded
         - PointsClaimed
+        - QuestsClaimed
         - SeasonStarted
       abis:
         - name: digitrabbits
           file: ./abis/digitrabbits.json
       eventHandlers:
-        - event: ContractPaused(indexed address)
-          handler: handleContractPaused
-        - event: ContractUnpaused(indexed address)
-          handler: handleContractUnpaused
         - event: GamePlayed(indexed address,uint256,uint256)
           handler: handleGamePlayed
         - event: GameStarted(indexed address,uint256,uint256)
           handler: handleGameStarted
-        - event: ItemBought(indexed address,uint8,uint8)
-          handler: handleItemBought
-        - event: OwnershipTransferred(indexed address,indexed address)
-          handler: handleOwnershipTransferred
         - event: PlayerAdded(indexed address,uint256)
           handler: handlePlayerAdded
-        - event: PointsClaimed(indexed address,uint256)
-          handler: handlePointsClaimed
         - event: SeasonStarted(indexed uint256)
           handler: handleSeasonStarted
+        - event: ContractPaused(indexed address)
+          handler: handleContractPaused
+        - event: ContractUnpaused(indexed address)
+          handler: handleContractUnpaused
+        - event: QuestClaimed(indexed address,string,string,uint256,uint256)
+          handler: handleQuestClaimed
+        - event: PointsClaimed(indexed address,uint256)
+          handler: handlePointsClaimed
+        - event: OwnershipTransferred(indexed address,indexed address)
+          handler: handleOwnershipTransferred
       file: ./src/digitrabbits.ts

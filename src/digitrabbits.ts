@@ -1,38 +1,36 @@
 import { BigInt, Address } from "@graphprotocol/graph-ts"
 import {
-  ContractPaused as ContractPausedEvent,
-  ContractUnpaused as ContractUnpausedEvent,
   GamePlayed as GamePlayedEvent,
   GameStarted as GameStartedEvent,
-  ItemBought as ItemBoughtEvent,
-  OwnershipTransferred as OwnershipTransferredEvent,
   PlayerAdded as PlayerAddedEvent,
+  SeasonStarted as SeasonStartedEvent,
+  ContractPaused as ContractPausedEvent,
+  ContractUnpaused as ContractUnpausedEvent,
+  QuestClaimed as QuestClaimedEvent,
   PointsClaimed as PointsClaimedEvent,
-  SeasonStarted as SeasonStartedEvent
+  OwnershipTransferred as OwnershipTransferredEvent,
 } from "../generated/digitrabbits/digitrabbits"
 import {
-  ContractPaused,
-  ContractUnpaused,
   GamePlayed,
   GameStarted,
-  ItemBought,
-  OwnershipTransferred,
   PlayerAdded,
-  PointsClaimed,
   SeasonStarted,
-  GlobalStats,
-  SeasonStats,
   Player,
   PlayerSeasonStats,
-  GlobalRecord
+  GlobalRecord,
+  GlobalStats,
+  ContractPaused,
+  ContractUnpaused,
+  QuestsClaimed,
+  PointsClaimed,
+  OwnershipTransferred,
 } from "../generated/schema"
 
-// Constantes
+// Import du contrat pour faire des appels
+import { digitrabbits } from "../generated/digitrabbits/digitrabbits"
+
 const ZERO = BigInt.fromI32(0)
 const ONE = BigInt.fromI32(1)
-const HUNDRED = BigInt.fromI32(100)
-const FIFTY = BigInt.fromI32(50)
-const SECONDS_IN_DAY = BigInt.fromI32(86400)
 
 // Fonction utilitaire pour récupérer ou créer GlobalStats
 function getOrCreateGlobalStats(): GlobalStats {
@@ -44,7 +42,7 @@ function getOrCreateGlobalStats(): GlobalStats {
     globalStats.totalGamesPlayed = ZERO
     globalStats.totalPointsClaimed = ZERO
     globalStats.totalPlayers = ZERO
-    globalStats.totalItemsBought = ZERO
+    globalStats.totalQuestsClaimed = ZERO
     globalStats.lastUpdatedBlock = ZERO
     globalStats.lastUpdatedTimestamp = ZERO
   }
@@ -64,7 +62,7 @@ function getOrCreatePlayer(address: Address, blockNumber: BigInt, timestamp: Big
     player.totalGamesStarted = ZERO
     player.totalClicks = ZERO
     player.totalPointsClaimed = ZERO
-    player.totalItemsBought = ZERO
+    player.totalQuestsClaimed = ZERO
     player.bestClicksInGame = ZERO
     player.bestClicksGameId = ZERO
     player.averageClicks = ZERO
@@ -81,71 +79,52 @@ function getOrCreatePlayer(address: Address, blockNumber: BigInt, timestamp: Big
   return player
 }
 
-// Fonction pour récupérer ou créer PlayerSeasonStats
-function getOrCreatePlayerSeasonStats(
-  address: Address, 
-  seasonId: BigInt, 
-  blockNumber: BigInt, 
-  timestamp: BigInt
-): PlayerSeasonStats {
-  let statsId = address.toHexString() + "-" + seasonId.toString()
-  let stats = PlayerSeasonStats.load(statsId)
-  
-  if (stats == null) {
-    stats = new PlayerSeasonStats(statsId)
-    let player = getOrCreatePlayer(address, blockNumber, timestamp)
-    stats.player = player.id
-    stats.seasonId = seasonId
-    stats.gamesPlayed = ZERO
-    stats.gamesStarted = ZERO
-    stats.totalClicks = ZERO
-    stats.pointsClaimed = ZERO
-    stats.itemsBought = ZERO
-    stats.bestClicksInGame = ZERO
-    stats.bestClicksGameId = ZERO
-    stats.averageClicks = ZERO
-    stats.currentStreak = ZERO
-    stats.longestStreak = ZERO
-    stats.firstGameTimestamp = timestamp
-    stats.lastGameTimestamp = ZERO
-    stats.leaderboardScore = ZERO
-    stats.rank = null
-    stats.lastUpdatedBlock = blockNumber
-    stats.lastUpdatedTimestamp = timestamp
-    
-    // Ajouter la saison à la liste des saisons du joueur
-    let seasons = player.seasonsParticipated
-    if (seasons.indexOf(seasonId) == -1) {
-      seasons.push(seasonId)
-      player.seasonsParticipated = seasons
-      player.save()
-    }
-  }
-  
-  return stats
-}
-
-// Fonction pour calculer le score du leaderboard
-function calculateLeaderboardScore(
-  totalClicks: BigInt, 
-  pointsClaimed: BigInt, 
-  currentStreak: BigInt
-): BigInt {
-  // Formule: clicks * 100 + points + streak * 50
-  return totalClicks.times(HUNDRED).plus(pointsClaimed).plus(currentStreak.times(FIFTY))
-}
-
-// Fonction pour vérifier et mettre à jour les records globaux
-function updateGlobalRecords(
-  player: Player,
-  gameId: BigInt,
+// Fonction séparée pour mettre à jour les records globaux depuis le contrat (sans gameId)
+function updateGlobalRecordsFromContract(
+  playerAddress: Address,
+  maxClicks: BigInt,
   seasonId: BigInt,
-  clicks: BigInt,
   blockNumber: BigInt,
   timestamp: BigInt
 ): void {
-  // Record de meilleur clicker
+  
   let topClickerRecord = GlobalRecord.load("topClicker")
+  let player = getOrCreatePlayer(playerAddress, blockNumber, timestamp)
+  
+  if (topClickerRecord == null || maxClicks.gt(topClickerRecord.value)) {
+    if (topClickerRecord == null) {
+      topClickerRecord = new GlobalRecord("topClicker")
+      topClickerRecord.recordType = "BEST_CLICKS"
+      topClickerRecord.previousRecord = ZERO
+    } else {
+      topClickerRecord.previousRecord = topClickerRecord.value
+    }
+    
+    topClickerRecord.player = player.id
+    topClickerRecord.value = maxClicks
+    topClickerRecord.gameId = ZERO // On ne peut pas déterminer le gameId depuis le contrat
+    topClickerRecord.seasonId = seasonId
+    topClickerRecord.achievedAt = timestamp
+    topClickerRecord.achievedAtBlock = blockNumber
+    topClickerRecord.lastUpdatedBlock = blockNumber
+    topClickerRecord.lastUpdatedTimestamp = timestamp
+    topClickerRecord.save()
+  }
+}
+
+// Fonction pour mettre à jour les records globaux
+function updateGlobalRecords(
+  playerAddress: Address,
+  clicks: BigInt,
+  gameId: BigInt,
+  seasonId: BigInt,
+  blockNumber: BigInt,
+  timestamp: BigInt
+): void {
+  
+  let topClickerRecord = GlobalRecord.load("topClicker")
+  let player = getOrCreatePlayer(playerAddress, blockNumber, timestamp)
+  
   if (topClickerRecord == null || clicks.gt(topClickerRecord.value)) {
     if (topClickerRecord == null) {
       topClickerRecord = new GlobalRecord("topClicker")
@@ -157,7 +136,7 @@ function updateGlobalRecords(
     
     topClickerRecord.player = player.id
     topClickerRecord.value = clicks
-    topClickerRecord.gameId = gameId
+    topClickerRecord.gameId = gameId  // Maintenant on a le bon gameId
     topClickerRecord.seasonId = seasonId
     topClickerRecord.achievedAt = timestamp
     topClickerRecord.achievedAtBlock = blockNumber
@@ -165,67 +144,234 @@ function updateGlobalRecords(
     topClickerRecord.lastUpdatedTimestamp = timestamp
     topClickerRecord.save()
   }
+}
+
+// Fonction pour synchroniser les données d'un joueur avec le contrat
+function syncPlayerDataWithContract(
+  contractAddress: Address,
+  playerAddress: Address,
+  seasonId: BigInt,
+  blockNumber: BigInt,
+  timestamp: BigInt
+): PlayerSeasonStats | null {
   
-  // Record de plus long streak
-  let longestStreakRecord = GlobalRecord.load("longestStreak")
-  if (longestStreakRecord == null || player.currentStreak.gt(longestStreakRecord.value)) {
-    if (longestStreakRecord == null) {
-      longestStreakRecord = new GlobalRecord("longestStreak")
-      longestStreakRecord.recordType = "LONGEST_STREAK"
-      longestStreakRecord.previousRecord = ZERO
-    } else {
-      longestStreakRecord.previousRecord = longestStreakRecord.value
+  // Charger le contrat
+  let contract = digitrabbits.bind(contractAddress)
+  
+  // Appeler getAllPlayersSeasonData
+  let callResult = contract.try_getAllPlayersSeasonData()
+  
+  if (callResult.reverted) {
+    // Si l'appel échoue, on retourne null
+    return null
+  }
+  
+  let addresses = callResult.value.getAddresses()
+  let scores = callResult.value.getScores()
+  let totalClicks = callResult.value.getTotalClicks()
+  let streaks = callResult.value.getStreak()
+  let lastClaimTimestamps = callResult.value.getLastClaimTimestamps()
+  let maxClicks = callResult.value.getMaxClicks()
+  let gamePlayed = callResult.value.getGamePlayed()
+  
+  // Chercher l'index du joueur dans les résultats
+  let playerIndex = -1
+  for (let i = 0; i < addresses.length; i++) {
+    if (addresses[i].equals(playerAddress)) {
+      playerIndex = i
+      break
+    }
+  }
+  
+  if (playerIndex == -1) {
+    // Joueur pas trouvé dans les données du contrat
+    return null
+  }
+  
+  // Créer ou mettre à jour les stats du joueur
+  let statsId = playerAddress.toHexString() + "-" + seasonId.toString()
+  let stats = PlayerSeasonStats.load(statsId)
+  
+  if (stats == null) {
+    stats = new PlayerSeasonStats(statsId)
+    
+    // Créer le Player si nécessaire
+    let player = getOrCreatePlayer(playerAddress, blockNumber, timestamp)
+    
+    // Ajouter la saison à la liste des saisons du joueur
+    let seasons = player.seasonsParticipated
+    if (seasons.indexOf(seasonId) == -1) {
+      seasons.push(seasonId)
+      player.seasonsParticipated = seasons
+      player.save()
     }
     
-    longestStreakRecord.player = player.id
-    longestStreakRecord.value = player.currentStreak
-    longestStreakRecord.gameId = gameId
-    longestStreakRecord.seasonId = seasonId
-    longestStreakRecord.achievedAt = timestamp
-    longestStreakRecord.achievedAtBlock = blockNumber
-    longestStreakRecord.lastUpdatedBlock = blockNumber
-    longestStreakRecord.lastUpdatedTimestamp = timestamp
-    longestStreakRecord.save()
+    stats.player = player.id
+    stats.seasonId = seasonId
+    stats.firstGameTimestamp = timestamp
+      stats.gamesPlayed = ZERO
+      stats.gamesStarted = ZERO
+      stats.questsClaimed = ZERO
+      stats.bestClicksGameId = null // 🔥 NULL car pas requis dans le schéma
+      stats.rank = null // 🔥 NULL car pas requis dans le schéma
+    
+    // INITIALISER TOUS LES CHAMPS REQUIS (avec ! dans le schéma)
+    stats.totalClicks = ZERO
+    stats.pointsClaimed = ZERO
+    stats.bestClicksInGame = ZERO
+    stats.averageClicks = ZERO
+    stats.currentStreak = ZERO
+    stats.longestStreak = ZERO
+    stats.leaderboardScore = ZERO
+    stats.lastGameTimestamp = timestamp
+    stats.lastUpdatedBlock = blockNumber
+    stats.lastUpdatedTimestamp = timestamp
+  }
+  
+  // 🎯 UTILISER LES VRAIES DONNÉES DU CONTRAT
+  stats.leaderboardScore = scores[playerIndex] // Score calculé par le contrat
+  stats.totalClicks = totalClicks[playerIndex] // Total des clicks du contrat
+  stats.currentStreak = streaks[playerIndex] // Streak réel du contrat
+  stats.bestClicksInGame = maxClicks[playerIndex] // Max clicks du contrat
+  stats.gamesPlayed = gamePlayed[playerIndex]
+  
+  // Calculer la moyenne avec les vraies données
+  if (stats.gamesPlayed.gt(ZERO)) {
+    stats.averageClicks = stats.totalClicks.div(stats.gamesPlayed)
+  } else {
+    stats.averageClicks = ZERO
+  }
+  
+  // Mettre à jour le longest streak si nécessaire
+  if (stats.currentStreak.gt(stats.longestStreak)) {
+    stats.longestStreak = stats.currentStreak
+  }
+
+  if (lastClaimTimestamps[playerIndex].gt(ZERO)) {
+    stats.pointsClaimed = stats.leaderboardScore
+  }
+
+  stats.lastGameTimestamp = timestamp
+  stats.lastUpdatedBlock = blockNumber
+  stats.lastUpdatedTimestamp = timestamp
+  
+  stats.save()
+  
+  return stats
+}
+
+// Fonction pour synchroniser TOUS les joueurs de la saison
+function syncAllPlayersDataWithContract(
+  contractAddress: Address,
+  seasonId: BigInt,
+  blockNumber: BigInt,
+  timestamp: BigInt
+): void {
+  
+  let contract = digitrabbits.bind(contractAddress)
+  let callResult = contract.try_getAllPlayersSeasonData()
+  
+  if (callResult.reverted) {
+    return
+  }
+  
+  let addresses = callResult.value.getAddresses()
+  let scores = callResult.value.getScores()
+  let totalClicks = callResult.value.getTotalClicks()
+  let streaks = callResult.value.getStreak()
+  let lastClaimTimestamps = callResult.value.getLastClaimTimestamps()
+  let maxClicks = callResult.value.getMaxClicks()
+  let gamePlayed = callResult.value.getGamePlayed()
+  
+  // Synchroniser tous les joueurs
+  for (let i = 0; i < addresses.length; i++) {
+    let playerAddress = addresses[i]
+    let statsId = playerAddress.toHexString() + "-" + seasonId.toString()
+    let stats = PlayerSeasonStats.load(statsId)
+    
+    if (stats == null) {
+      // Créer les stats si elles n'existent pas
+      stats = new PlayerSeasonStats(statsId)
+      
+      let player = getOrCreatePlayer(playerAddress, blockNumber, timestamp)
+      
+      // Ajouter la saison à la liste des saisons du joueur
+      let seasons = player.seasonsParticipated
+      if (seasons.indexOf(seasonId) == -1) {
+        seasons.push(seasonId)
+        player.seasonsParticipated = seasons
+        player.save()
+      }
+      
+      stats.player = player.id
+      stats.seasonId = seasonId
+      stats.firstGameTimestamp = timestamp
+      stats.gamesPlayed = ZERO
+      stats.gamesStarted = ZERO
+      stats.questsClaimed = ZERO
+      stats.bestClicksGameId = null
+      stats.rank = null
+      
+      // INITIALISER TOUS LES CHAMPS REQUIS
+      stats.totalClicks = ZERO
+      stats.pointsClaimed = ZERO
+      stats.bestClicksInGame = ZERO
+      stats.averageClicks = ZERO
+      stats.currentStreak = ZERO
+      stats.longestStreak = ZERO
+      stats.leaderboardScore = ZERO
+      stats.lastGameTimestamp = timestamp
+      stats.lastUpdatedBlock = blockNumber
+      stats.lastUpdatedTimestamp = timestamp
+    }
+    
+    // 🎯 SYNCHRONISER AVEC LES VRAIES DONNÉES
+    stats.leaderboardScore = scores[i]
+    stats.totalClicks = totalClicks[i]
+    stats.currentStreak = streaks[i]
+    stats.bestClicksInGame = maxClicks[i]
+    stats.gamesPlayed = gamePlayed[i]
+    
+    if (stats.gamesPlayed.gt(ZERO)) {
+      stats.averageClicks = stats.totalClicks.div(stats.gamesPlayed)
+    } else {
+      stats.averageClicks = ZERO
+    }
+    
+    if (stats.currentStreak.gt(stats.longestStreak)) {
+      stats.longestStreak = stats.currentStreak
+    }
+
+    if (lastClaimTimestamps[i].gt(ZERO)) {
+      stats.pointsClaimed = stats.leaderboardScore
+    }
+    
+    stats.lastGameTimestamp = timestamp
+    stats.lastUpdatedBlock = blockNumber
+    stats.lastUpdatedTimestamp = timestamp
+    stats.save()
+    
+    // Mettre à jour les records globaux si nécessaire
+    updateGlobalRecordsFromContract(playerAddress, maxClicks[i], seasonId, blockNumber, timestamp)
   }
 }
 
-// Gestionnaires d'événements existants (inchangés)
-export function handleContractPaused(event: ContractPausedEvent): void {
-  let entity = new ContractPaused(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.by = event.params.by
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-  entity.save()
-}
+// 🎯 GESTIONNAIRES D'ÉVÉNEMENTS
 
-export function handleContractUnpaused(event: ContractUnpausedEvent): void {
-  let entity = new ContractUnpaused(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.by = event.params.by
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-  entity.save()
-}
-
-// 🎯 GESTIONNAIRE PRINCIPAL: GamePlayed (mis à jour pour le nouveau schéma)
 export function handleGamePlayed(event: GamePlayedEvent): void {
-  // Récupérer ou créer le Player AVANT de sauver l'événement
+  // Créer ou récupérer le Player AVANT de sauver l'événement
   let player = getOrCreatePlayer(event.params.player, event.block.number, event.block.timestamp)
   
-  // Sauver l'événement original avec les nouvelles références
+  // GÉRER LE SEQUENTIAL ID
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.totalGamesPlayed = globalStats.totalGamesPlayed.plus(ONE)
+  let currentSequentialId = globalStats.totalGamesPlayed
+  
+  // Sauver l'événement original avec les références correctes
   let entity = new GamePlayed(
     event.transaction.hash.concatI32(event.logIndex.toI32())
   )
-  
-  let globalStats = getOrCreateGlobalStats()
-  globalStats.totalGamesPlayed = globalStats.totalGamesPlayed.plus(ONE)
-  
-  entity.sequentialId = globalStats.totalGamesPlayed
+  entity.sequentialId = currentSequentialId  // ID séquentiel : 1, 2, 3, 4...
   entity.playerAddress = event.params.player  // L'adresse brute
   entity.player = player.id                   // Référence vers l'entité Player
   entity.seasonId = event.params.seasonId
@@ -235,106 +381,61 @@ export function handleGamePlayed(event: GamePlayedEvent): void {
   entity.transactionHash = event.transaction.hash
   entity.save()
   
-  // 🎯 NOUVELLE LOGIQUE: Mettre à jour le Player et ses stats
-  let seasonStats = getOrCreatePlayerSeasonStats(
-    event.params.player, 
-    event.params.seasonId, 
-    event.block.number, 
-    event.block.timestamp
-  )
+  // Sauvegarder les stats globales avec le nouveau compteur
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
   
-  // Mettre à jour les stats du joueur (global)
-  player.totalGamesPlayed = player.totalGamesPlayed.plus(ONE)
-  player.totalClicks = player.totalClicks.plus(event.params.clicks)
-  player.lastGameTimestamp = event.block.timestamp
-  
-  // Vérifier si c'est un nouveau record personnel
-  if (event.params.clicks.gt(player.bestClicksInGame)) {
-    player.bestClicksInGame = event.params.clicks
-    player.bestClicksGameId = entity.sequentialId
-  }
-  
-  // Calculer la moyenne
-  if (player.totalGamesPlayed.gt(ZERO)) {
-    player.averageClicks = player.totalClicks.div(player.totalGamesPlayed)
-  }
-  
-  // Gérer le streak (simplifié: +1 si dernière partie < 24h, sinon reset)
-  let timeSinceLastGame = event.block.timestamp.minus(player.lastGameTimestamp)
-  if (player.lastGameTimestamp.equals(ZERO) || timeSinceLastGame.le(SECONDS_IN_DAY)) {
-    player.currentStreak = player.currentStreak.plus(ONE)
-  } else {
-    player.currentStreak = ONE // Reset du streak
-  }
-  
-  // Mettre à jour le plus long streak
-  if (player.currentStreak.gt(player.longestStreak)) {
-    player.longestStreak = player.currentStreak
-  }
-  
-  // Déterminer si le joueur est actif (dernière partie < 24h)
-  player.isActive = timeSinceLastGame.le(SECONDS_IN_DAY)
-  
-  player.lastUpdatedBlock = event.block.number
-  player.lastUpdatedTimestamp = event.block.timestamp
-  player.save()
-  
-  // Mettre à jour les stats de saison
-  seasonStats.gamesPlayed = seasonStats.gamesPlayed.plus(ONE)
-  seasonStats.totalClicks = seasonStats.totalClicks.plus(event.params.clicks)
-  seasonStats.lastGameTimestamp = event.block.timestamp
-  
-  // Record personnel pour cette saison
-  if (event.params.clicks.gt(seasonStats.bestClicksInGame)) {
-    seasonStats.bestClicksInGame = event.params.clicks
-    seasonStats.bestClicksGameId = entity.sequentialId
-  }
-  
-  // Calculer la moyenne pour cette saison
-  if (seasonStats.gamesPlayed.gt(ZERO)) {
-    seasonStats.averageClicks = seasonStats.totalClicks.div(seasonStats.gamesPlayed)
-  }
-  
-  // Streak pour cette saison (même logique)
-  if (timeSinceLastGame.le(SECONDS_IN_DAY)) {
-    seasonStats.currentStreak = seasonStats.currentStreak.plus(ONE)
-  } else {
-    seasonStats.currentStreak = ONE
-  }
-  
-  if (seasonStats.currentStreak.gt(seasonStats.longestStreak)) {
-    seasonStats.longestStreak = seasonStats.currentStreak
-  }
-  
-  // Calculer le score du leaderboard
-  seasonStats.leaderboardScore = calculateLeaderboardScore(
-    seasonStats.totalClicks,
-    seasonStats.pointsClaimed,
-    seasonStats.currentStreak
-  )
-  
-  seasonStats.lastUpdatedBlock = event.block.number
-  seasonStats.lastUpdatedTimestamp = event.block.timestamp
-  seasonStats.save()
-  
-  // Mettre à jour les records globaux
-  updateGlobalRecords(
-    player,
-    entity.sequentialId,
+  // SYNCHRONISER AVEC LES VRAIES DONNÉES DU CONTRAT
+  let contractAddress = event.address
+  let stats = syncPlayerDataWithContract(
+    contractAddress,
+    event.params.player,
     event.params.seasonId,
-    event.params.clicks,
     event.block.number,
     event.block.timestamp
   )
   
-  // Sauvegarder les stats globales
-  globalStats.lastUpdatedBlock = event.block.number
-  globalStats.lastUpdatedTimestamp = event.block.timestamp
-  globalStats.save()
+  if (stats != null) {
+    // Mettre à jour bestClicksGameId avec le sequential ID si c'est un nouveau record
+    if (event.params.clicks.gt(stats.bestClicksInGame)) {
+      stats.bestClicksGameId = currentSequentialId
+    }
+    
+    stats.save()
+    
+    // Mettre à jour le Player global
+    player.totalGamesPlayed = player.totalGamesPlayed.plus(ONE)
+    player.totalClicks = stats.totalClicks
+    player.currentStreak = stats.currentStreak
+    let previousBestClicks = player.bestClicksInGame
+    player.bestClicksInGame = stats.bestClicksInGame
+    
+    // Mettre à jour bestClicksGameId global si c'est un nouveau record
+    if (event.params.clicks.gt(previousBestClicks)) {
+      player.bestClicksGameId = currentSequentialId
+    }
+    
+    player.lastGameTimestamp = event.block.timestamp
+    player.isActive = true
+    player.lastUpdatedBlock = event.block.number
+    player.lastUpdatedTimestamp = event.block.timestamp
+    player.save()
+    
+    // Mettre à jour les records globaux avec le sequential ID
+    updateGlobalRecords(
+      event.params.player, 
+      event.params.clicks, 
+      currentSequentialId, 
+      event.params.seasonId, 
+      event.block.number, 
+      event.block.timestamp
+    )
+  }
 }
 
 export function handleGameStarted(event: GameStartedEvent): void {
-  // Récupérer ou créer le Player AVANT de sauver l'événement
+  // Créer ou récupérer le Player AVANT de sauver l'événement
   let player = getOrCreatePlayer(event.params.player, event.block.number, event.block.timestamp)
   
   let entity = new GameStarted(
@@ -348,26 +449,22 @@ export function handleGameStarted(event: GameStartedEvent): void {
   entity.blockTimestamp = event.block.timestamp
   entity.transactionHash = event.transaction.hash
   entity.save()
-
-  // Mettre à jour les stats du joueur
-  let seasonStats = getOrCreatePlayerSeasonStats(
-    event.params.player, 
-    event.params.seasonId, 
-    event.block.number, 
-    event.block.timestamp
-  )
   
+  // Incrémenter le compteur de games started
+  let statsId = event.params.player.toHexString() + "-" + event.params.seasonId.toString()
+  let stats = PlayerSeasonStats.load(statsId)
+  if (stats != null) {
+    stats.gamesStarted = stats.gamesStarted.plus(ONE)
+    stats.save()
+  }
+  
+  // Mettre à jour le player global
   player.totalGamesStarted = player.totalGamesStarted.plus(ONE)
   player.lastUpdatedBlock = event.block.number
   player.lastUpdatedTimestamp = event.block.timestamp
   player.save()
   
-  seasonStats.gamesStarted = seasonStats.gamesStarted.plus(ONE)
-  seasonStats.lastUpdatedBlock = event.block.number
-  seasonStats.lastUpdatedTimestamp = event.block.timestamp
-  seasonStats.save()
-
-  // Mettre à jour les statistiques globales
+  // Mettre à jour les stats globales
   let globalStats = getOrCreateGlobalStats()
   globalStats.totalGamesStarted = globalStats.totalGamesStarted.plus(ONE)
   globalStats.lastUpdatedBlock = event.block.number
@@ -375,50 +472,8 @@ export function handleGameStarted(event: GameStartedEvent): void {
   globalStats.save()
 }
 
-export function handleItemBought(event: ItemBoughtEvent): void {
-  // Récupérer ou créer le Player AVANT de sauver l'événement
-  let player = getOrCreatePlayer(event.params.player, event.block.number, event.block.timestamp)
-  
-  let entity = new ItemBought(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.playerAddress = event.params.player  // L'adresse brute
-  entity.player = player.id                   // Référence vers l'entité Player
-  entity.slot = event.params.slot
-  entity.level = event.params.level
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-  entity.save()
-
-  // Mettre à jour les stats du joueur
-  player.totalItemsBought = player.totalItemsBought.plus(ONE)
-  player.lastUpdatedBlock = event.block.number
-  player.lastUpdatedTimestamp = event.block.timestamp
-  player.save()
-
-  // Mettre à jour les statistiques globales
-  let globalStats = getOrCreateGlobalStats()
-  globalStats.totalItemsBought = globalStats.totalItemsBought.plus(ONE)
-  globalStats.lastUpdatedBlock = event.block.number
-  globalStats.lastUpdatedTimestamp = event.block.timestamp
-  globalStats.save()
-}
-
-export function handleOwnershipTransferred(event: OwnershipTransferredEvent): void {
-  let entity = new OwnershipTransferred(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.previousOwner = event.params.previousOwner
-  entity.newOwner = event.params.newOwner
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-  entity.save()
-}
-
 export function handlePlayerAdded(event: PlayerAddedEvent): void {
-  // Récupérer ou créer le Player AVANT de sauver l'événement
+  // Créer ou récupérer le Player AVANT de sauver l'événement
   let player = getOrCreatePlayer(event.params.player, event.block.number, event.block.timestamp)
   
   let entity = new PlayerAdded(
@@ -431,46 +486,15 @@ export function handlePlayerAdded(event: PlayerAddedEvent): void {
   entity.blockTimestamp = event.block.timestamp
   entity.transactionHash = event.transaction.hash
   entity.save()
-
-  // S'assurer que le Player existe et le sauvegarder
-  player.save()
-
-  // Mettre à jour les statistiques globales
-  let globalStats = getOrCreateGlobalStats()
-  globalStats.totalPlayers = globalStats.totalPlayers.plus(ONE)
-  globalStats.lastUpdatedBlock = event.block.number
-  globalStats.lastUpdatedTimestamp = event.block.timestamp
-  globalStats.save()
-}
-
-export function handlePointsClaimed(event: PointsClaimedEvent): void {
-  // Récupérer ou créer le Player AVANT de sauver l'événement
-  let player = getOrCreatePlayer(event.params.player, event.block.number, event.block.timestamp)
   
-  let entity = new PointsClaimed(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
+  // Synchroniser ce nouveau joueur avec les données du contrat
+  syncPlayerDataWithContract(
+    event.address,
+    event.params.player,
+    event.params.seasonId,
+    event.block.number,
+    event.block.timestamp
   )
-  entity.playerAddress = event.params.player  // L'adresse brute
-  entity.player = player.id                   // Référence vers l'entité Player
-  entity.amount = event.params.amount
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-  entity.save()
-
-  // Mettre à jour les stats du joueur - on ne peut pas déterminer la saison ici
-  // donc on met à jour seulement les stats globales
-  player.totalPointsClaimed = player.totalPointsClaimed.plus(event.params.amount)
-  player.lastUpdatedBlock = event.block.number
-  player.lastUpdatedTimestamp = event.block.timestamp
-  player.save()
-
-  // Mettre à jour les statistiques globales
-  let globalStats = getOrCreateGlobalStats()
-  globalStats.totalPointsClaimed = globalStats.totalPointsClaimed.plus(event.params.amount)
-  globalStats.lastUpdatedBlock = event.block.number
-  globalStats.lastUpdatedTimestamp = event.block.timestamp
-  globalStats.save()
 }
 
 export function handleSeasonStarted(event: SeasonStartedEvent): void {
@@ -482,4 +506,176 @@ export function handleSeasonStarted(event: SeasonStartedEvent): void {
   entity.blockTimestamp = event.block.timestamp
   entity.transactionHash = event.transaction.hash
   entity.save()
+  
+  // Optionnel: Synchroniser tous les joueurs de cette nouvelle saison
+  syncAllPlayersDataWithContract(
+    event.address,
+    event.params.seasonId,
+    event.block.number,
+    event.block.timestamp
+  )
+}
+
+export function handleContractPaused(event: ContractPausedEvent): void {
+  // Create the event entity
+  let entity = new ContractPaused(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  )
+  entity.by = event.params.by
+  entity.blockNumber = event.block.number
+  entity.blockTimestamp = event.block.timestamp
+  entity.transactionHash = event.transaction.hash
+  entity.save()
+  
+  // Update global stats
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
+}
+
+export function handleContractUnpaused(event: ContractUnpausedEvent): void {
+  // Create the event entity
+  let entity = new ContractUnpaused(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  )
+  entity.by = event.params.by
+  entity.blockNumber = event.block.number
+  entity.blockTimestamp = event.block.timestamp
+  entity.transactionHash = event.transaction.hash
+  entity.save()
+  
+  // Update global stats
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
+}
+
+export function handleQuestClaimed(event: QuestClaimedEvent): void {
+  // Create or get the player
+  let player = getOrCreatePlayer(event.params.player, event.block.number, event.block.timestamp)
+  
+  // Create the event entity
+  let entity = new QuestsClaimed(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  )
+  entity.playerAddress = event.params.player
+  entity.player = player.id
+  entity.questId = event.params.questId
+  entity.period = event.params.period
+  entity.rewardAmount = event.params.rewardAmount
+  entity.questTimestamp = event.params.timestamp
+  entity.blockNumber = event.block.number
+  entity.blockTimestamp = event.block.timestamp
+  entity.transactionHash = event.transaction.hash
+  entity.save()
+  
+  // Synchroniser avec les vraies données du contrat pour obtenir le currentSeasonId
+  let contract = digitrabbits.bind(event.address)
+  let currentSeasonResult = contract.try_currentSeasonId()
+  
+  if (!currentSeasonResult.reverted) {
+    let currentSeasonId = currentSeasonResult.value
+    
+    // Synchroniser les données du joueur avec le contrat
+    let stats = syncPlayerDataWithContract(
+      event.address,
+      event.params.player,
+      currentSeasonId,
+      event.block.number,
+      event.block.timestamp
+    )
+    
+    if (stats != null) {
+      // Incrémenter le compteur de quêtes claimées pour cette saison
+      stats.questsClaimed = stats.questsClaimed.plus(ONE)
+      stats.save()
+    }
+  }
+  
+  // Update player stats
+  player.totalQuestsClaimed = player.totalQuestsClaimed.plus(ONE)
+  player.lastUpdatedBlock = event.block.number
+  player.lastUpdatedTimestamp = event.block.timestamp
+  player.save()
+  
+  // Update global stats
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.totalQuestsClaimed = globalStats.totalQuestsClaimed.plus(ONE)
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
+}
+
+export function handlePointsClaimed(event: PointsClaimedEvent): void {
+  // Créer ou récupérer le Player AVANT de sauver l'événement
+  let player = getOrCreatePlayer(event.params.player, event.block.number, event.block.timestamp)
+  
+  // Créer l'entité de l'événement
+  let entity = new PointsClaimed(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  )
+  entity.playerAddress = event.params.player  // L'adresse brute
+  entity.player = player.id                   // Référence vers l'entité Player
+  entity.amount = event.params.amount         // Montant réclamé
+  entity.blockNumber = event.block.number
+  entity.blockTimestamp = event.block.timestamp
+  entity.transactionHash = event.transaction.hash
+  entity.save()
+  
+  // Synchroniser avec les vraies données du contrat pour obtenir le currentSeasonId
+  let contract = digitrabbits.bind(event.address)
+  let currentSeasonResult = contract.try_currentSeasonId()
+  
+  if (!currentSeasonResult.reverted) {
+    let currentSeasonId = currentSeasonResult.value
+    
+    // Synchroniser les données du joueur avec le contrat
+    let stats = syncPlayerDataWithContract(
+      event.address,
+      event.params.player,
+      currentSeasonId,
+      event.block.number,
+      event.block.timestamp
+    )
+    
+    if (stats != null) {
+      // Les points sont déjà synchronisés via syncPlayerDataWithContract
+      stats.pointsClaimed = event.params.amount
+      stats.save()
+    }
+  }
+  
+  // Mettre à jour les stats du joueur global
+  player.totalPointsClaimed = player.totalPointsClaimed.plus(event.params.amount)
+  player.lastUpdatedBlock = event.block.number
+  player.lastUpdatedTimestamp = event.block.timestamp
+  player.save()
+  
+  // Mettre à jour les stats globales
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.totalPointsClaimed = globalStats.totalPointsClaimed.plus(event.params.amount)
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
+}
+
+export function handleOwnershipTransferred(event: OwnershipTransferredEvent): void {
+  // Create the event entity
+  let entity = new OwnershipTransferred(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  )
+  entity.previousOwner = event.params.previousOwner
+  entity.newOwner = event.params.newOwner
+  entity.blockNumber = event.block.number
+  entity.blockTimestamp = event.block.timestamp
+  entity.transactionHash = event.transaction.hash
+  entity.save()
+  
+  // Update global stats
+  let globalStats = getOrCreateGlobalStats()
+  globalStats.lastUpdatedBlock = event.block.number
+  globalStats.lastUpdatedTimestamp = event.block.timestamp
+  globalStats.save()
 }

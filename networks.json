@@ -1,8 +1,14 @@
 {
-  "megaeth-testnet": {
+  "megaeth-timothy": {
     "digitrabbits": {
-      "address": "0x07bc9814b3f806a5fa95dc5530407ad4d599e3dd",
-      "startBlock": 13040920
+      "address": "0x36780E39010704E57438b6A7b62e3F04B9df76a7",
+      "startBlock": 15604634
+    }
+  },
+  "megaeth": {
+    "digitrabbits": {
+      "address": "0xFE7C8a660c9d06e781F145A84556Ff31350Cd452",
+      "startBlock": 15359187
     }
   }
 }

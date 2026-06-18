@@ -6,9 +6,7 @@ import {
   beforeAll,
   afterAll
 } from "matchstick-as/assembly/index"
-import { Address, BigInt } from "@graphprotocol/graph-ts"
-import { ContractPaused } from "../generated/schema"
-import { ContractPaused as ContractPausedEvent } from "../generated/digitrabbits/digitrabbits"
+import { Address } from "@graphprotocol/graph-ts"
 import { handleContractPaused } from "../src/digitrabbits"
 import { createContractPausedEvent } from "./digitrabbits-utils"
 
@@ -35,7 +33,7 @@ describe("Describe entity assertions", () => {
     // 0xa16081f360e3847006db660bae1c6d1b2e17ec2a is the default address used in newMockEvent() function
     assert.fieldEquals(
       "ContractPaused",
-      "0xa16081f360e3847006db660bae1c6d1b2e17ec2a-1",
+      "0xa16081f360e3847006db660bae1c6d1b2e17ec2a01000000",
       "by",
       "0x0000000000000000000000000000000000000001"
     )
